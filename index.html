@@ -1924,9 +1924,9 @@ async function loadFromDrive() {
         const data = JSON.parse(text);
         if (data.entries && data.categories) {
           S = data;
-          persist();
-          render();
-          toast('Data loaded from Google Drive');
+          localStorage.setItem('karibi_v2', JSON.stringify(S)); // cache locally too
+          render(); // re-render with Drive data
+          toast('Synced from Google Drive');
         }
       }
     }
@@ -1981,7 +1981,37 @@ document.addEventListener('keydown', e => {
 
 // ── INIT ──
 document.getElementById('f-date').value = new Date().toISOString().split('T')[0];
+
+// Show local data immediately as a fallback
 render();
+
+// Auto-reconnect to Google Drive silently on page load
+window.addEventListener('load', () => {
+  const tryAutoConnect = () => {
+    if (typeof google === 'undefined' || !google.accounts) {
+      setTimeout(tryAutoConnect, 500);
+      return;
+    }
+    setSyncStatus('Connecting...', 'var(--amber)');
+    const client = google.accounts.oauth2.initTokenClient({
+      client_id: CLIENT_ID,
+      scope: SCOPES,
+      prompt: '',
+      callback: async (response) => {
+        if (response.error) {
+          setSyncStatus('Click to connect', 'var(--text3)');
+          return;
+        }
+        accessToken = response.access_token;
+        setSyncStatus('Connected ✓', 'var(--green)');
+        // Always load from Drive on connect — Drive is the source of truth
+        await loadFromDrive();
+      }
+    });
+    client.requestAccessToken({ prompt: '' });
+  };
+  tryAutoConnect();
+});
 </script>
 </body>
 </html>
