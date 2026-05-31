@@ -1286,12 +1286,21 @@ function addEntry() {
   if (!cat || isNaN(amt) || amt <= 0) { toast('Please fill in category and amount', 'warn'); return; }
   const now = new Date();
   const dateVal = document.getElementById('f-date').value || now.toISOString().split('T')[0];
-  S.entries.unshift({
-    id: Date.now(),
-    cat, amt, note,
-    date: dateVal,
-    ts: now.getTime()
-  });
+  const entry = { id: Date.now(), cat, amt, note, date: dateVal, ts: now.getTime() };
+
+  // If editing an archived month, add to that month's entries
+  if (viewingHistoryIndex !== null) {
+    S.history[viewingHistoryIndex].entries.unshift(entry);
+    persist();
+    document.getElementById('f-amt').value = '';
+    document.getElementById('f-note').value = '';
+    document.getElementById('f-date').value = new Date().toISOString().split('T')[0];
+    renderWithViewedMonth(true);
+    toast('Entry added to ' + S.history[viewingHistoryIndex].monthLabel);
+    return;
+  }
+
+  S.entries.unshift(entry);
   persist();
   document.getElementById('f-amt').value = '';
   document.getElementById('f-note').value = '';
@@ -1308,17 +1317,21 @@ function addEntry() {
 
 // ── DELETE ENTRY ──
 function deleteEntry(id) {
-  S.entries = S.entries.filter(e => e.id !== id);
-  persist();
-  render();
+  if (viewingHistoryIndex !== null) {
+    S.history[viewingHistoryIndex].entries = S.history[viewingHistoryIndex].entries.filter(e => e.id !== id);
+    persist();
+    renderWithViewedMonth(true);
+  } else {
+    S.entries = S.entries.filter(e => e.id !== id);
+    persist();
+    render();
+  }
   toast('Entry removed');
 }
 
 // ── RENDER ENTRY ROW ──
 function makeEntryRow(e, readOnly) {
   const c = catByKey(e.cat);
-
-  // Expense date — the actual date of the expense from the form
   let expenseDateStr = '—';
   if (e.date && /^\d{4}-\d{2}-\d{2}$/.test(e.date)) {
     const [dy, dm, dd] = e.date.split('-').map(Number);
@@ -1339,8 +1352,14 @@ function makeEntryRow(e, readOnly) {
 // ── EDIT ENTRY ──
 let editingEntryId = null;
 
+function getEntriesArray() {
+  // Returns the active entries array (current or archived)
+  if (viewingHistoryIndex !== null) return S.history[viewingHistoryIndex].entries;
+  return S.entries;
+}
+
 function openEditEntry(id) {
-  const e = S.entries.find(e => e.id === id);
+  const e = getEntriesArray().find(e => e.id === id);
   if (!e) return;
   editingEntryId = id;
   renderCatSelect('edit-cat');
@@ -1357,12 +1376,14 @@ function saveEditEntry() {
   const date = document.getElementById('edit-date').value;
   const note = document.getElementById('edit-note').value.trim();
   if (!cat || isNaN(amt) || amt <= 0 || !date) { toast('Please fill in all fields', 'warn'); return; }
-  const idx = S.entries.findIndex(e => e.id === editingEntryId);
+  const entries = getEntriesArray();
+  const idx = entries.findIndex(e => e.id === editingEntryId);
   if (idx === -1) return;
-  S.entries[idx] = { ...S.entries[idx], cat, amt, date, note };
+  entries[idx] = { ...entries[idx], cat, amt, date, note };
   persist();
   closeModal('modal-edit-entry');
-  render();
+  if (viewingHistoryIndex !== null) renderWithViewedMonth(true);
+  else render();
   toast('Entry updated');
 }
 
@@ -1965,6 +1986,13 @@ function renderWithViewedMonth(editable) {
   if (newMonthBtn) newMonthBtn.style.display = isViewing ? 'none' : '';
   const logCard = document.querySelector('.log-card');
   if (logCard) logCard.style.display = (isViewing && !isEditable) ? 'none' : '';
+
+  // Populate category select and prefill date when in edit mode
+  if (isEditable || !isViewing) {
+    renderCatSelect('f-cat');
+    const fd = document.getElementById('f-date');
+    if (fd && !fd.value) fd.value = new Date().toISOString().split('T')[0];
+  }
 
   const m = getActiveMonthData();
   const entries = m.entries || [];
